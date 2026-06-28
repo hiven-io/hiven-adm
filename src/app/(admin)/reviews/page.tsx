@@ -55,11 +55,11 @@ export default function ReviewsPage() {
       const experiencesMap = new Map((experiencesResult.data || []).map((e: any) => [e.id, e]))
 
       const enriched = reviews.map((review: any) => {
-        const post = postsMap.get(review.post_id)
-        const user = post ? usersMap.get(post.user_id) : null
-        const target = review.target_type === 'place'
+        const post = postsMap.get(review.post_id) as any
+        const user = post ? usersMap.get(post.user_id) as any : null
+        const target = (review.target_type === 'place'
           ? placesMap.get(review.target_id)
-          : experiencesMap.get(review.target_id)
+          : experiencesMap.get(review.target_id)) as any
 
         return {
           ...review,
