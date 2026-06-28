@@ -23,17 +23,41 @@ export default function ReportsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['reports', page, statusFilter],
     queryFn: async () => {
-      let query = supabase
+      const sb = supabase as any
+      let query = sb
         .from('reports')
-        .select('*, reporter:users!reports_reporter_id_fkey(display_name, avatar_url, username)', { count: 'exact' })
+        .select('*', { count: 'exact' })
         .order('created_at', { ascending: false })
         .range((page - 1) * 20, page * 20 - 1)
 
       if (statusFilter) query = query.eq('status', statusFilter)
 
-      const { data, count, error } = await query
+      const { data: reportsData, count, error } = await query
       if (error) throw error
-      return { data: (data as any[]) || [], count: count || 0 }
+
+      const reports = (reportsData || []) as any[]
+      if (reports.length === 0) return { data: [], count: count || 0 }
+
+      const reporterIds = [...new Set(reports.map((r: any) => r.reporter_id).filter(Boolean))]
+      let reportersMap: Record<string, any> = {}
+
+      if (reporterIds.length > 0) {
+        const { data: reporters } = await sb
+          .from('users')
+          .select('id, display_name, avatar_url, username')
+          .in('id', reporterIds)
+
+        if (reporters) {
+          reportersMap = Object.fromEntries(reporters.map((u: any) => [u.id, u]))
+        }
+      }
+
+      const enriched = reports.map((r: any) => ({
+        ...r,
+        reporter: reportersMap[r.reporter_id] || null,
+      }))
+
+      return { data: enriched, count: count || 0 }
     },
   })
 

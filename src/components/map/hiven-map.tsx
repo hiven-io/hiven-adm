@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { MapPinned, Loader2, Layers, Eye } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useThemeStore } from '@/stores/theme-store'
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN || ''
 
@@ -33,6 +34,11 @@ const CATEGORY_COLORS: Record<string, string> = {
   default: '#6E625C',
 }
 
+const MAP_STYLES = {
+  light: 'mapbox://styles/mapbox/standard',
+  dark: 'mapbox://styles/mapbox/dark-v11',
+}
+
 function getColor(category: string | null): string {
   if (!category) return CATEGORY_COLORS.default
   const key = Object.keys(CATEGORY_COLORS).find(k =>
@@ -41,12 +47,39 @@ function getColor(category: string | null): string {
   return key ? CATEGORY_COLORS[key] : CATEGORY_COLORS.default
 }
 
+function getPopupStyles(isDark: boolean) {
+  if (isDark) {
+    return {
+      bg: '#2C2826',
+      titleColor: '#EEE8E4',
+      subColor: '#9B968F',
+      ratingColor: '#FB923C',
+      expSubColor: '#6B6560',
+      borderColor: '#3A3330',
+    }
+  }
+  return {
+    bg: '#FEFCFB',
+    titleColor: '#2A2320',
+    subColor: '#6E625C',
+    ratingColor: '#F97316',
+    expSubColor: '#A99E98',
+    borderColor: '#EAE2DD',
+  }
+}
+
 export function HivenMap({ className, fullHeight }: { className?: string; fullHeight?: boolean }) {
   const mapContainer = useRef<HTMLDivElement>(null)
   const map = useRef<mapboxgl.Map | null>(null)
-  const markers = useRef<mapboxgl.Marker[]>([])
+  const markersRef = useRef<mapboxgl.Marker[]>([])
+  const markerIdsRef = useRef<Set<string>>(new Set())
+  const expMarkersRef = useRef<mapboxgl.Marker[]>([])
+  const expMarkerIdsRef = useRef<Set<string>>(new Set())
+  const userMarkerRef = useRef<mapboxgl.Marker | null>(null)
   const [loaded, setLoaded] = useState(false)
   const [showExperiences, setShowExperiences] = useState(false)
+  const { theme } = useThemeStore()
+  const isDark = theme === 'dark'
 
   const { data: places } = useQuery({
     queryKey: ['map-places'],
@@ -139,7 +172,7 @@ export function HivenMap({ className, fullHeight }: { className?: string; fullHe
 
     map.current = new mapboxgl.Map({
       container: mapContainer.current,
-      style: 'mapbox://styles/mapbox/standard',
+      style: isDark ? MAP_STYLES.dark : MAP_STYLES.light,
       center: [-43.9386, -19.9208],
       zoom: 12,
       pitch: 20,
@@ -152,53 +185,111 @@ export function HivenMap({ className, fullHeight }: { className?: string; fullHe
       setLoaded(true)
     })
 
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (!map.current) return
+          const { longitude: lng, latitude: lat } = pos.coords
+          map.current.flyTo({ center: [lng, lat], zoom: 13, duration: 1200 })
+
+          if (userMarkerRef.current) userMarkerRef.current.remove()
+
+          const el = document.createElement('div')
+          el.style.cssText = 'width: 16px; height: 16px; cursor: pointer;'
+
+          const pulse = document.createElement('div')
+          pulse.style.cssText = `
+            width: 16px; height: 16px; border-radius: 50%;
+            background: ${isDark ? '#38BDF8' : '#0EA5E9'};
+            border: 2.5px solid ${isDark ? '#1A1714' : 'white'};
+            box-shadow: 0 0 0 4px ${isDark ? 'rgba(56,189,248,0.2)' : 'rgba(14,165,233,0.25)'};
+            animation: user-pulse 2s ease-in-out infinite;
+          `
+          el.appendChild(pulse)
+
+          userMarkerRef.current = new mapboxgl.Marker({ element: el })
+            .setLngLat([lng, lat])
+            .addTo(map.current)
+        },
+        () => {},
+        { enableHighAccuracy: false, timeout: 8000 }
+      )
+    }
+
     return () => {
-      markers.current.forEach(m => m.remove())
-      markers.current = []
+      markersRef.current.forEach(m => m.remove())
+      markersRef.current = []
+      markerIdsRef.current.clear()
+      expMarkersRef.current.forEach(m => m.remove())
+      expMarkersRef.current = []
+      expMarkerIdsRef.current.clear()
+      userMarkerRef.current?.remove()
+      userMarkerRef.current = null
       map.current?.remove()
       map.current = null
     }
   }, [])
 
   useEffect(() => {
+    if (!map.current) return
+    const style = isDark ? MAP_STYLES.dark : MAP_STYLES.light
+    map.current.setStyle(style)
+
+    markersRef.current.forEach(m => m.remove())
+    markersRef.current = []
+    markerIdsRef.current.clear()
+    expMarkersRef.current.forEach(m => m.remove())
+    expMarkersRef.current = []
+    expMarkerIdsRef.current.clear()
+  }, [isDark])
+
+  useEffect(() => {
     if (!map.current || !loaded || !places) return
 
-    markers.current.forEach(m => m.remove())
-    markers.current = []
+    const currentIds = new Set(places.map(p => p.id))
+
+    markersRef.current = markersRef.current.filter(m => {
+      const id = m.getElement().dataset.placeId
+      if (id && !currentIds.has(id)) {
+        m.remove()
+        markerIdsRef.current.delete(id)
+        return false
+      }
+      return true
+    })
+
+    const styles = getPopupStyles(isDark)
 
     places.forEach((pin: MapPin) => {
+      if (markerIdsRef.current.has(pin.id)) return
+
       const color = getColor(pin.category)
+
       const el = document.createElement('div')
-      el.className = 'map-pin'
-      el.style.cssText = `
+      el.dataset.placeId = pin.id
+      el.style.cssText = 'width: 28px; height: 28px; cursor: pointer;'
+
+      const pinInner = document.createElement('div')
+      pinInner.style.cssText = `
         width: 28px;
         height: 28px;
         border-radius: 50% 50% 50% 0;
         background: ${color};
         transform: rotate(-45deg);
-        border: 2.5px solid white;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-        cursor: pointer;
-        transition: transform 0.15s ease;
+        border: 2.5px solid ${isDark ? '#3A3330' : 'white'};
+        box-shadow: 0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.25'});
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        pointer-events: none;
       `
-
-      const inner = document.createElement('div')
-      inner.style.cssText = `
-        width: 100%;
-        height: 100%;
-        border-radius: 50% 50% 50% 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        transform: rotate(45deg);
-      `
-      el.appendChild(inner)
+      el.appendChild(pinInner)
 
       el.addEventListener('mouseenter', () => {
-        el.style.transform = 'rotate(-45deg) scale(1.15)'
+        pinInner.style.transform = 'rotate(-45deg) scale(1.2)'
+        pinInner.style.boxShadow = `0 4px 14px rgba(0,0,0,${isDark ? '0.5' : '0.35'})`
       })
       el.addEventListener('mouseleave', () => {
-        el.style.transform = 'rotate(-45deg) scale(1)'
+        pinInner.style.transform = 'rotate(-45deg) scale(1)'
+        pinInner.style.boxShadow = `0 2px 8px rgba(0,0,0,${isDark ? '0.4' : '0.25'})`
       })
 
       const popup = new mapboxgl.Popup({
@@ -206,10 +297,10 @@ export function HivenMap({ className, fullHeight }: { className?: string; fullHe
         closeButton: false,
         maxWidth: '220px',
       }).setHTML(`
-        <div style="padding: 8px 2px; font-family: inherit;">
-          <div style="font-weight: 600; font-size: 13px; color: #2A2320; margin-bottom: 4px;">${pin.name}</div>
-          ${pin.category ? `<div style="font-size: 11px; color: #6E625C; margin-bottom: 2px;">${pin.category}</div>` : ''}
-          ${pin.rating ? `<div style="font-size: 11px; color: #F97316;">★ ${pin.rating.toFixed(1)}</div>` : ''}
+        <div style="padding: 8px 2px; font-family: inherit; background: ${styles.bg}; border-radius: 8px;">
+          <div style="font-weight: 600; font-size: 13px; color: ${styles.titleColor}; margin-bottom: 4px;">${pin.name}</div>
+          ${pin.category ? `<div style="font-size: 11px; color: ${styles.subColor}; margin-bottom: 2px;">${pin.category}</div>` : ''}
+          ${pin.rating ? `<div style="font-size: 11px; color: ${styles.ratingColor};">★ ${pin.rating.toFixed(1)}</div>` : ''}
         </div>
       `)
 
@@ -218,47 +309,83 @@ export function HivenMap({ className, fullHeight }: { className?: string; fullHe
         .setPopup(popup)
         .addTo(map.current!)
 
-      markers.current.push(marker)
+      markerIdsRef.current.add(pin.id)
+      markersRef.current.push(marker)
     })
-  }, [loaded, places])
+  }, [loaded, places, isDark])
 
   useEffect(() => {
-    if (!map.current || !loaded || !showExperiences || !experiences) return
+    if (!map.current || !loaded) return
 
-    const expMarkers = experiences.map((exp: any) => {
+    if (!showExperiences || !experiences) {
+      expMarkersRef.current.forEach(m => m.remove())
+      expMarkersRef.current = []
+      expMarkerIdsRef.current.clear()
+      return
+    }
+
+    const currentIds = new Set(experiences.map((e: any) => e.id))
+
+    expMarkersRef.current = expMarkersRef.current.filter(m => {
+      const id = m.getElement().dataset.expId
+      if (id && !currentIds.has(id)) {
+        m.remove()
+        expMarkerIdsRef.current.delete(id)
+        return false
+      }
+      return true
+    })
+
+    const styles = getPopupStyles(isDark)
+
+    experiences.forEach((exp: any) => {
+      if (expMarkerIdsRef.current.has(exp.id)) return
+
       const el = document.createElement('div')
-      el.style.cssText = `
+      el.dataset.expId = exp.id
+      el.style.cssText = 'width: 14px; height: 14px; cursor: pointer;'
+
+      const dotInner = document.createElement('div')
+      dotInner.style.cssText = `
         width: 14px;
         height: 14px;
         border-radius: 50%;
-        background: #E11D48;
-        border: 2px solid white;
-        box-shadow: 0 1px 4px rgba(0,0,0,0.3);
-        cursor: pointer;
-        opacity: 0.85;
+        background: ${isDark ? '#E11D48' : '#BE123C'};
+        border: 2px solid ${isDark ? '#3A3330' : 'white'};
+        box-shadow: 0 1px 4px rgba(0,0,0,${isDark ? '0.5' : '0.3'});
+        opacity: 0.9;
+        transition: transform 0.2s ease;
+        pointer-events: none;
       `
+      el.appendChild(dotInner)
+
+      el.addEventListener('mouseenter', () => {
+        dotInner.style.transform = 'scale(1.3)'
+      })
+      el.addEventListener('mouseleave', () => {
+        dotInner.style.transform = 'scale(1)'
+      })
 
       const popup = new mapboxgl.Popup({
         offset: 12,
         closeButton: false,
         maxWidth: '200px',
       }).setHTML(`
-        <div style="padding: 6px 2px; font-family: inherit;">
-          <div style="font-weight: 600; font-size: 12px; color: #2A2320;">${exp.title}</div>
-          <div style="font-size: 10px; color: #A99E98; margin-top: 2px;">Experiencia aberta</div>
+        <div style="padding: 6px 2px; font-family: inherit; background: ${styles.bg}; border-radius: 8px;">
+          <div style="font-weight: 600; font-size: 12px; color: ${styles.titleColor};">${exp.title}</div>
+          <div style="font-size: 10px; color: ${styles.expSubColor}; margin-top: 2px;">Experiencia aberta</div>
         </div>
       `)
 
-      return new mapboxgl.Marker({ element: el })
+      const marker = new mapboxgl.Marker({ element: el })
         .setLngLat([exp.lng, exp.lat])
         .setPopup(popup)
         .addTo(map.current!)
-    })
 
-    return () => {
-      expMarkers.forEach(m => m.remove())
-    }
-  }, [loaded, showExperiences, experiences])
+      expMarkerIdsRef.current.add(exp.id)
+      expMarkersRef.current.push(marker)
+    })
+  }, [loaded, showExperiences, experiences, isDark])
 
   return (
     <Card className={cn('border-hiven-border/60 overflow-hidden', className)}>
