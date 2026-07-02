@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { supabase } from '@/lib/supabase'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -23,49 +22,25 @@ export default function ReportsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['reports', page, statusFilter],
     queryFn: async () => {
-      const sb = supabase as any
-      let query = sb
-        .from('reports')
-        .select('*', { count: 'exact' })
-        .order('created_at', { ascending: false })
-        .range((page - 1) * 20, page * 20 - 1)
+      const params = new URLSearchParams({ page: String(page) })
+      if (statusFilter) params.set('status', statusFilter)
 
-      if (statusFilter) query = query.eq('status', statusFilter)
-
-      const { data: reportsData, count, error } = await query
-      if (error) throw error
-
-      const reports = (reportsData || []) as any[]
-      if (reports.length === 0) return { data: [], count: count || 0 }
-
-      const reporterIds = [...new Set(reports.map((r: any) => r.reporter_id).filter(Boolean))]
-      let reportersMap: Record<string, any> = {}
-
-      if (reporterIds.length > 0) {
-        const { data: reporters } = await sb
-          .from('users')
-          .select('id, display_name, avatar_url, username')
-          .in('id', reporterIds)
-
-        if (reporters) {
-          reportersMap = Object.fromEntries(reporters.map((u: any) => [u.id, u]))
-        }
-      }
-
-      const enriched = reports.map((r: any) => ({
-        ...r,
-        reporter: reportersMap[r.reporter_id] || null,
-      }))
-
-      return { data: enriched, count: count || 0 }
+      const res = await fetch(`/api/admin/reports?${params}`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      return json as { data: any[]; count: number }
     },
   })
 
   const updateReport = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const supabaseAny = supabase as any
-      const { error } = await supabaseAny.from('reports').update({ status, reviewed_at: new Date().toISOString() }).eq('id', id)
-      if (error) throw error
+      const res = await fetch('/api/admin/reports', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, data: { status, reviewed_at: new Date().toISOString() } }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reports'] })

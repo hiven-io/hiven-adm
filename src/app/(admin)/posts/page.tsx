@@ -39,11 +39,13 @@ export default function PostsPage() {
 
   const deletePost = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
-        .from('posts')
-        .update({ deleted_at: new Date().toISOString() })
-        .eq('id', id)
-      if (error) throw error
+      const res = await fetch('/api/admin/posts', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['posts'] })

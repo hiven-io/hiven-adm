@@ -66,12 +66,13 @@ export function useUpdatePlace() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: AnyRow }) => {
-      const { error } = await (supabase as any)
-        .from('places')
-        .update(data)
-        .eq('id', id)
-
-      if (error) throw error
+      const res = await fetch('/api/admin/places', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, data }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['places'] })
@@ -84,12 +85,13 @@ export function useDeletePlace() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
-        .from('places')
-        .update({ status: 'closed' })
-        .eq('id', id)
-
-      if (error) throw error
+      const res = await fetch('/api/admin/places', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['places'] })

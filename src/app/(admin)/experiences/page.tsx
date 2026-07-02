@@ -139,10 +139,8 @@ export default function ExperiencesPage() {
                     <TableCell className="text-sm text-hiven-text-2">{exp.likes_count}</TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
-                        <DropdownMenuTrigger>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg">
-                            <MoreHorizontal className="h-4 w-4 text-hiven-text-3" />
-                          </Button>
+                        <DropdownMenuTrigger className="inline-flex items-center justify-center h-8 w-8 rounded-lg hover:bg-muted hover:text-foreground transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                          <MoreHorizontal className="h-4 w-4 text-hiven-text-3" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="border-hiven-border rounded-xl">
                           <DropdownMenuItem onClick={() => setViewExp(exp)} className="rounded-lg">

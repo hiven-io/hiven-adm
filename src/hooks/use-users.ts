@@ -67,12 +67,13 @@ export function useUpdateUser() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: AnyRow }) => {
-      const { error } = await (supabase as any)
-        .from('users')
-        .update(data)
-        .eq('id', id)
-
-      if (error) throw error
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, data }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
@@ -85,12 +86,13 @@ export function useDeleteUser() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await (supabase as any)
-        .from('users')
-        .update({ bio: '[DELETED]' })
-        .eq('id', id)
-
-      if (error) throw error
+      const res = await fetch('/api/admin/users', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
